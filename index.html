@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FutSal - AP</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    #futsalCanvas{border:3px solid #1e293b;cursor:grab;touch-action:none;box-shadow:0 8px 16px rgba(0,0,0,.2)}
+    #futsalCanvas:active{cursor:grabbing}.recording-active{animation:pulse-red 1.5s infinite}
+    @keyframes pulse-red{0%,100%{background:#ef4444}50%{background:#b91c1c}}
+    .canvas-container{max-width:100%;display:flex;flex-direction:column;align-items:center}
+    .cursor-grab{cursor:grab}.cursor-grabbing{cursor:grabbing}.cursor-crosshair{cursor:crosshair}
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen p-4">
+<div id="app" class="mx-auto w-full max-w-7xl rounded-xl border border-gray-200 bg-white p-4 shadow-2xl md:p-8">
+  <h1 class="text-center text-3xl font-bold text-blue-700">FutSal - AP</h1>
+  <p class="mb-6 text-center text-gray-500">Gestão de jogadas FUTSAL.</p>
+  <div id="appStatus" class="mb-4 rounded-lg bg-blue-100 p-2 text-center text-sm font-semibold text-blue-800" aria-live="polite">Aplicação pronta.</div>
+
+  <div class="mb-4 flex gap-4">
+    <button id="menuToggleLeftBtn" type="button" class="w-1/2 rounded-xl bg-blue-600 px-4 py-3 font-bold text-white shadow-md hover:bg-blue-700 lg:w-auto">☰ <span id="menuTextLeft">Controlo</span></button>
+    <button id="menuToggleRightBtn" type="button" class="w-1/2 rounded-xl bg-purple-600 px-4 py-3 font-bold text-white shadow-md hover:bg-purple-700 lg:w-auto">⚙ <span id="menuTextRight">Jogadores</span></button>
+  </div>
+
+  <div class="flex w-full flex-col gap-6 lg:flex-row">
+    <aside id="menuPanelLeft" class="hidden w-full flex-shrink-0 space-y-4 lg:w-1/4">
+      <section class="rounded-xl border bg-gray-100 p-4 shadow-inner">
+        <h2 class="mb-3 border-b pb-2 text-xl font-semibold text-blue-700">Opções de campo</h2>
+        <div class="flex flex-col gap-2">
+          <button id="resetBtn" type="button" class="rounded-lg bg-yellow-500 px-4 py-2 font-bold text-white hover:bg-yellow-600">🔄 Nova jogada</button>
+          <button id="toggleOpponentBtn" type="button" class="rounded-lg bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700">Mostrar equipa oponente</button>
+          <button id="togglePathArrowsBtn" type="button" class="rounded-lg bg-purple-500 px-4 py-2 font-bold text-white hover:bg-purple-600">✖ Ocultar trajetos</button>
+          <button id="toggleDrawModeBtn" type="button" class="rounded-lg bg-indigo-600 px-4 py-2 font-bold text-white hover:bg-indigo-700">✏ Modo seta: OFF</button>
+          <div class="flex gap-2">
+            <button id="clearArrowsBtn" type="button" class="w-1/2 rounded-lg bg-rose-500 px-4 py-2 font-bold text-white hover:bg-rose-600 text-xs">🗑 Limpar setas</button>
+            <button id="undoArrowBtn" type="button" disabled class="w-1/2 rounded-lg bg-gray-500 px-4 py-2 font-bold text-white disabled:opacity-50 text-xs">↩ Anular última seta</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-xl border bg-gray-100 p-4 shadow-inner">
+        <h2 class="mb-3 border-b pb-2 text-xl font-semibold text-blue-700">Gravação e base de dados</h2>
+        <label for="dbPlaySelect" class="mb-1 block text-xs font-bold uppercase">Carregar jogada</label>
+        <select id="dbPlaySelect" class="mb-4 w-full rounded-lg border border-blue-500 bg-white p-2 text-sm"><option value="">-- Selecionar jogada --</option></select>
+        <div class="mb-3 flex gap-2">
+          <button id="recordBtn" type="button" class="w-1/2 rounded-lg bg-red-500 px-4 py-2 font-bold text-white hover:bg-red-600">Gravar</button>
+          <button id="playbackBtn" type="button" disabled class="w-1/2 rounded-lg bg-blue-500 px-4 py-2 font-bold text-white disabled:opacity-50">Play</button>
+        </div>
+        <div class="mb-3">
+          <div class="flex justify-between text-xs font-semibold text-gray-600 mb-1">
+            <span>Linha temporal</span>
+            <span id="timelineCounter">0 / 0</span>
+          </div>
+          <input id="timelineSlider" type="range" min="0" max="0" value="0" disabled class="w-full accent-blue-600 disabled:opacity-50 cursor-pointer">
+        </div>
+        <div class="mb-3 flex gap-2">
+          <button id="undoBtn" type="button" disabled class="w-1/2 rounded-lg bg-gray-500 px-4 py-2 font-bold text-white disabled:opacity-50">↩ Desfazer</button>
+          <button id="exportMp4Btn" type="button" disabled class="w-1/2 rounded-lg bg-amber-600 px-4 py-2 font-bold text-white disabled:opacity-50">🎥 Exportar vídeo</button>
+        </div>
+        <div id="editingBadge" class="mb-2 hidden rounded bg-amber-100 p-1 text-center text-xs font-bold text-amber-700">A editar jogada #<span id="currentPlayId"></span></div>
+        
+        <div class="space-y-2">
+          <input id="playNameInput" type="text" value="Nova Jogada" placeholder="Nome da jogada" class="w-full rounded-lg border p-2 text-sm">
+          
+          <!-- Tipo de Jogada -->
+          <div>
+            <label for="playTypeSelect" class="block text-xs font-bold uppercase text-gray-600 mb-1">Tipo de Jogada:</label>
+            <select id="playTypeSelect" class="w-full rounded-lg border bg-white p-2 text-sm font-medium text-gray-800"></select>
+          </div>
+
+          <!-- SubTipo de Jogada -->
+          <div>
+            <label for="playSubtypeSelect" class="block text-xs font-bold uppercase text-gray-600 mb-1">SubTipo:</label>
+            <select id="playSubtypeSelect" class="w-full rounded-lg border bg-white p-2 text-sm font-medium text-gray-800"></select>
+          </div>
+
+          <!-- Adicionar Categoria Personalizada -->
+          <div class="p-2 bg-gray-200 rounded-lg border border-gray-300 space-y-2 mt-2">
+            <span class="block text-xs font-bold text-gray-700">➕ Adicionar Categoria</span>
+            <input type="text" id="newTypeInput" placeholder="Novo Tipo (opcional)" class="w-full p-1 bg-white border border-gray-300 rounded text-xs text-gray-800 shadow-sm">
+            <input type="text" id="newSubtypeInput" placeholder="Novo SubTipo" class="w-full p-1 bg-white border border-gray-300 rounded text-xs text-gray-800 shadow-sm">
+            <button id="addNewCategoryBtn" type="button" class="w-full py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition shadow-sm">
+              Adicionar aos Seletores
+            </button>
+          </div>
+
+          <input id="playResponsavelInput" type="text" value="Treinador" placeholder="Responsável" class="w-full rounded-lg border p-2 text-sm">
+          <textarea id="playObservacoesInput" rows="3" placeholder="Observações táticas" class="w-full resize-none rounded-lg border p-2 text-sm"></textarea>
+        </div>
+
+        <div class="mt-3 flex gap-2">
+          <button id="saveBtn" type="button" disabled class="w-full rounded-lg bg-blue-600 px-4 py-2 font-bold text-white disabled:opacity-50">💾 Guardar jogada</button>
+          <button id="cancelEditBtn" type="button" class="hidden rounded-lg bg-gray-400 px-3 py-2 text-xs font-bold text-white">Cancelar</button>
+        </div>
+        <p id="statusMessage" class="mt-3 text-center text-sm font-semibold text-blue-600" aria-live="polite"></p>
+      </section>
+
+      <section class="rounded-xl border bg-gray-100 p-4 shadow-inner">
+        <div class="mb-3 flex items-center justify-between border-b pb-2">
+          <h2 class="text-xl font-semibold text-blue-700">Jogadas na BD</h2>
+          <button id="refreshPlaysBtn" type="button" class="rounded bg-blue-500 px-2 py-1 text-xs font-bold text-white">Atualizar</button>
+        </div>
+        <input id="searchPlaysInput" type="text" placeholder="Filtrar jogadas..." class="mb-3 w-full rounded-lg border p-2 text-sm bg-white">
+        <div id="savedPlaysList" class="max-h-64 space-y-2 overflow-y-auto"><p class="text-sm text-gray-500">A carregar...</p></div>
+      </section>
+    </aside>
+
+    <main id="canvasWrapper" class="canvas-container min-w-0 flex-grow gap-4 rounded-xl bg-gray-200 p-4 shadow-inner">
+      <canvas id="futsalCanvas" width="700" height="1033" class="h-auto max-w-full rounded-lg"></canvas>
+      <div class="w-full max-w-[700px] rounded-xl border border-blue-200 bg-white p-4 shadow-md">
+        <h3 class="mb-1 text-sm font-bold uppercase text-blue-700">📋 Observações táticas</h3>
+        <div id="externalNotesDisplay" class="min-h-10 whitespace-pre-wrap text-sm text-gray-700">Sem observações inseridas para esta jogada.</div>
+      </div>
+    </main>
+
+    <aside id="menuPanelRight" class="hidden w-full flex-shrink-0 lg:w-1/4">
+      <section class="rounded-xl border bg-gray-100 p-4 shadow-inner">
+        <h2 class="mb-3 border-b pb-2 text-xl font-semibold text-purple-600">Números e posições</h2>
+        <div id="playerLabelInputs" class="space-y-2"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+<footer class="mx-auto mt-8 max-w-7xl text-center text-sm text-gray-500">FutSal - AP © 2026</footer>
+
+<div id="customModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-gray-900/75 p-4">
+  <div class="w-full max-w-md rounded-xl border border-blue-600 bg-white p-6 shadow-2xl">
+    <h3 id="modalTitle" class="mb-4 text-xl font-bold text-blue-700"></h3>
+    <div id="modalMessage" class="mb-6 space-y-2 text-gray-700"></div>
+    <div class="flex justify-end gap-3"><button id="modalCancel" type="button" class="hidden rounded-lg bg-gray-300 px-4 py-2">Cancelar</button><button id="modalConfirm" type="button" class="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Confirmar</button></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+const SUPABASE_URL='https://kgruabdgyisqxsnubrwx.supabase.co';
+const SUPABASE_ANON_KEY='sb_publishable_XRSBv2LJMfft-LqGZCynBw_9LrKeTvB';
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
+let SUBTIPOS_MAP = {
+    'Ataque': ['1*3*1', '1*4*0', '1*2*2'],
+    'Defesa': ['Individual', 'Zona', 'Mista'],
+    'Transições': ['Ofensiva', 'Defensiva'],
+    'Esquemas Táticos': ['Cantos', 'Lançamentos', 'Livres', '5*4', '4*3', 'Bola de Saída', 'Reposição de GR']
+};
+
+const PLAYER_COUNT=5, OPPONENT_COUNT=5, BALL_ID=11, SCALE=700/600, PLAYER_RADIUS=18*SCALE, BALL_RADIUS=15*SCALE, FRAME_INTERVAL=100, TRAIL_LENGTH=15;
+const TEAM_COLOR='#f87171', OPPONENT_COLOR='#10b981', PATH_COLOR='rgba(255,255,255,.72)';
+const $=id=>document.getElementById(id);
+const canvas=$('futsalCanvas'),ctx=canvas.getContext('2d'),W=canvas.width,COURT_H=933,H=canvas.height;
+const state={activePlayId:null,plays:[],players:[],ball:null,playerLabels:{},recording:[],customArrows:[],isDrawingMode:false,drawingStart:null,isRecording:false,isPlaying:false,playHead:0,interval:null,draggedItem:null,isMenuLeftOpen:false,isMenuRightOpen:false,showOpponent:false,showPathArrows:true,history:[],playerTrails:{}};
+let initialPositions=[];
+
+function setStatus(message,isError=false){const el=$('statusMessage');el.textContent=message;el.className=`mt-3 text-center text-sm font-semibold ${isError?'text-red-600':'text-blue-600'}`;clearTimeout(el.timer);el.timer=setTimeout(()=>el.textContent='',8000)}
+function modal(title,content,confirm=false){return new Promise(resolve=>{const m=$('customModal'),box=$('modalMessage'),ok=$('modalConfirm'),cancel=$('modalCancel');$('modalTitle').textContent=title;box.innerHTML='';typeof content==='string'?box.textContent=content:box.appendChild(content);cancel.classList.toggle('hidden',!confirm);m.classList.remove('hidden');m.classList.add('flex');const close=v=>{m.classList.add('hidden');m.classList.remove('flex');ok.onclick=null;cancel.onclick=null;resolve(v)};ok.onclick=()=>close(true);cancel.onclick=()=>close(false)})}
+function updateLayout(){$('menuPanelLeft').classList.toggle('hidden',!state.isMenuLeftOpen);$('menuPanelRight').classList.toggle('hidden',!state.isMenuRightOpen);$('menuTextLeft').textContent=state.isMenuLeftOpen?'Ocultar controlo':'Controlo';$('menuTextRight').textContent=state.isMenuRightOpen?'Ocultar jogadores':'Jogadores'}
+function toggleMenu(side){if(side==='left'){state.isMenuLeftOpen=!state.isMenuLeftOpen;if(innerWidth<1024&&state.isMenuLeftOpen)state.isMenuRightOpen=false}else{state.isMenuRightOpen=!state.isMenuRightOpen;if(innerWidth<1024&&state.isMenuRightOpen)state.isMenuLeftOpen=false}updateLayout()}
+
+function drawCourt(){
+  ctx.fillStyle='#0f172a';
+  ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#1e3a8a';
+  ctx.fillRect(0,0,W,COURT_H);
+  ctx.strokeStyle='#1d4ed8';
+  ctx.lineWidth=1;
+  for(let y=0;y<COURT_H;y+=50*SCALE){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+  ctx.save();ctx.globalAlpha=.13;ctx.fillStyle='white';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='700 48px system-ui';ctx.fillText('FutSal - AP',W/2,COURT_H*.16);ctx.fillText('FutSal - AP',W/2,COURT_H*.84);ctx.restore();ctx.strokeStyle='white';ctx.lineWidth=2.5*SCALE;ctx.strokeRect(1,1,W-2,COURT_H-2);ctx.beginPath();ctx.moveTo(0,COURT_H/2);ctx.lineTo(W,COURT_H/2);ctx.stroke();ctx.beginPath();ctx.arc(W/2,COURT_H/2,55*SCALE,0,Math.PI*2);ctx.stroke();const a=85*SCALE;ctx.beginPath();ctx.arc(W/2,0,a,0,Math.PI);ctx.stroke();ctx.beginPath();ctx.arc(W/2,COURT_H,a,Math.PI,0);ctx.stroke();ctx.fillStyle='white';for(const y of [110*SCALE,COURT_H-110*SCALE]){ctx.beginPath();ctx.arc(W/2,y,3.5,0,Math.PI*2);ctx.fill()}
+}
+function arrowHead(x,y,px,py,color){const len=12*SCALE,ang=Math.atan2(y-py,x-px),off=PLAYER_RADIUS*.4,ex=x-Math.cos(ang)*off,ey=y-Math.sin(ang)*off;ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(ex-len*Math.cos(ang-Math.PI/6),ey-len*Math.sin(ang-Math.PI/6));ctx.lineTo(ex-len*Math.cos(ang+Math.PI/6),ey-len*Math.sin(ang+Math.PI/6));ctx.closePath();ctx.fill()}
+
+function drawCustomArrows(){
+  const activeArrows = (state.isPlaying || state.isRecording || state.recording.length > 0) 
+    ? state.customArrows.filter(a => (a.frameIndex ?? 0) <= state.playHead)
+    : state.customArrows;
+
+  for(const a of activeArrows){
+    ctx.strokeStyle='#f59e0b';
+    ctx.lineWidth=3;
+    ctx.setLineDash([6,4]);
+    ctx.beginPath();
+    ctx.moveTo(a.fromX,a.fromY);
+    ctx.lineTo(a.toX,a.toY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    arrowHead(a.toX,a.toY,a.fromX,a.fromY,'#f59e0b');
+  }
+}
+
+function drawPaths(){if(!state.showPathArrows)return;const tracks={};const frames=state.isPlaying?state.recording.slice(0,state.playHead+1):state.recording;for(const f of frames)for(const p of f.positions){(tracks[p.id]??=[]).push({x:p.x,y:p.y})}if(!state.isPlaying)for(const[id,trail]of Object.entries(state.playerTrails)){tracks[id]=(tracks[id]||[]).concat(trail)}for(const[id,track]of Object.entries(tracks)){const n=Number(id);if(n===BALL_ID||(n>=6&&n<=10&&!state.showOpponent)||track.length<2)continue;const color=n>=6?OPPONENT_COLOR:TEAM_COLOR;for(let i=0;i<track.length-1;i++){ctx.strokeStyle=i>=track.length-TRAIL_LENGTH-1?color:PATH_COLOR;ctx.lineWidth=i>=track.length-TRAIL_LENGTH-1?3:2;ctx.setLineDash(i>=track.length-TRAIL_LENGTH-1?[]:[5,5]);ctx.beginPath();ctx.moveTo(track[i].x,track[i].y);ctx.lineTo(track[i+1].x,track[i+1].y);ctx.stroke()}const l=track.at(-1),p=track.at(-2);ctx.setLineDash([]);arrowHead(l.x,l.y,p.x,p.y,color)}ctx.setLineDash([])}
+function drawPlayers(){ctx.fillStyle='white';ctx.beginPath();ctx.arc(state.ball.x,state.ball.y,BALL_RADIUS,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#1e293b';ctx.stroke();for(const p of state.players){if(p.id===BALL_ID)continue;const opp=p.id>=6&&p.id<=10;if(opp&&!state.showOpponent)continue;ctx.fillStyle=opp?OPPONENT_COLOR:TEAM_COLOR;ctx.beginPath();ctx.arc(p.x,p.y,PLAYER_RADIUS,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#1e293b';ctx.lineWidth=1.5;ctx.stroke();ctx.fillStyle='white';ctx.font=`600 ${12*SCALE}px system-ui`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(state.playerLabels[p.id]||(opp?`A${p.id-5}`:p.id),p.x,p.y)}}
+
+function drawObservationsOverlay(){
+  const obs=$('playObservacoesInput').value.trim();
+  if(!obs)return;
+  ctx.save();
+  ctx.fillStyle='#0f172a';
+  ctx.fillRect(0, COURT_H, W, H - COURT_H);
+  ctx.strokeStyle='#3b82f6';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(0, COURT_H);
+  ctx.lineTo(W, COURT_H);
+  ctx.stroke();
+
+  ctx.fillStyle='white';
+  ctx.font=`bold ${12*SCALE}px system-ui`;
+  ctx.textAlign='left';
+  ctx.textBaseline='top';
+  
+  const maxWidth=W - 30*SCALE;
+  const words=obs.split(' ');
+  let line='';
+  let y=COURT_H + 15*SCALE;
+  for(let n=0;n<words.length;n++){
+    const testLine=line+words[n]+' ';
+    const metrics=ctx.measureText(testLine);
+    if(metrics.width>maxWidth&&n>0){
+      ctx.fillText(line, 15*SCALE, y);
+      line=words[n]+' ';
+      y+=16*SCALE;
+    }else{
+      line=testLine;
+    }
+  }
+  ctx.fillText(line, 15*SCALE, y);
+  ctx.restore();
+}
+
+function updateTimelineUI(){const slider=$('timelineSlider'),counter=$('timelineCounter'),max=Math.max(0,state.recording.length-1);slider.max=max;slider.value=state.playHead;slider.disabled=max===0||state.isRecording;counter.textContent=`${state.playHead} / ${max}`}
+function updateCanvas(){drawCourt();drawCustomArrows();drawPaths();drawPlayers();drawObservationsOverlay();updateTimelineUI();$('undoBtn').disabled=!state.history.length||state.isRecording||state.isPlaying;$('undoArrowBtn').disabled=!state.customArrows.length||state.isRecording||state.isPlaying}
+function getInitialPositions(){const c=W/2,q=W/4;return[{id:1,x:c,y:COURT_H-50*SCALE,label:'G.R.'},{id:2,x:c,y:COURT_H-180*SCALE,label:'Fixo'},{id:3,x:q,y:COURT_H-350*SCALE,label:'Ala E'},{id:4,x:3*q,y:COURT_H-350*SCALE,label:'Ala D'},{id:5,x:c,y:COURT_H-550*SCALE,label:'Pivô'},{id:6,x:c,y:50*SCALE,label:'GR A'},{id:7,x:c,y:180*SCALE,label:'Pivô A'},{id:8,x:q,y:350*SCALE,label:'Ala E A'},{id:9,x:3*q,y:350*SCALE,label:'Ala D A'},{id:10,x:c,y:550*SCALE,label:'Fixo A'},{id:11,x:c,y:COURT_H/2,label:'Bola'}]}
+function initialize(){initialPositions=getInitialPositions();state.players=structuredClone(initialPositions);state.ball=state.players.find(p=>p.id===BALL_ID);for(const p of initialPositions)state.playerLabels[p.id]??=p.label;renderLabelInputs();updateCanvas()}
+function renderLabelInputs(){const c=$('playerLabelInputs');c.innerHTML='';for(const group of [{title:'FutSal - AP (Vermelho)',from:1,to:5,color:'bg-red-500'},{title:'Equipa adversária (Verde)',from:6,to:10,color:'bg-green-600'}]){const h=document.createElement('h3');h.className='mt-2 font-semibold';h.textContent=group.title;c.appendChild(h);for(let i=group.from;i<=group.to;i++){const row=document.createElement('div');row.className='flex items-center gap-2';row.innerHTML=`<span class="h-4 w-4 flex-shrink-0 rounded-full ${group.color}"></span>`;const inp=document.createElement('input');inp.className='min-w-0 flex-grow rounded border p-1 text-xs';inp.value=state.playerLabels[i]||String(i);inp.addEventListener('input',()=>{state.playerLabels[i]=inp.value.trim()||String(i);updateCanvas()});row.appendChild(inp);c.appendChild(row)}}}
+function resetPlay(){if(state.isRecording||state.isPlaying)return modal('Atenção','Pare a gravação ou reprodução primeiro.');state.players=structuredClone(initialPositions);state.ball=state.players.find(p=>p.id===BALL_ID);Object.assign(state,{recording:[],customArrows:[],history:[],playerTrails:{},playHead:0});$('playbackBtn').disabled=true;$('saveBtn').disabled=true;$('exportMp4Btn').disabled=true;$('playNameInput').value='Nova Jogada';$('playObservacoesInput').value='';$('externalNotesDisplay').textContent='Sem observações inseridas para esta jogada.';clearEdit();updateCanvas();setStatus('Nova jogada iniciada.')}
+function saveHistory(){state.history.push(state.players.map(p=>({id:p.id,x:p.x,y:p.y})));if(state.history.length>50)state.history.shift()}
+function undo(){const prev=state.history.pop();if(!prev)return setStatus('Não há movimentos para desfazer.',true);for(const p of prev){const item=state.players.find(x=>x.id===p.id);if(item)Object.assign(item,p)}state.playerTrails={};updateCanvas()}
+function undoArrow(){if(!state.customArrows.length)return;state.customArrows.pop();updateCanvas();setStatus('Última seta removida.')}
+function coords(e){const r=canvas.getBoundingClientRect(),point=e.touches?.[0]||e.changedTouches?.[0]||e;return{x:(point.clientX-r.left)*W/r.width,y:(point.clientY-r.top)*H/r.height}}
+function clicked(x,y){if(Math.hypot(x-state.ball.x,y-state.ball.y)<BALL_RADIUS)return state.ball;return state.players.find(p=>p.id!==BALL_ID&&!(p.id>=6&&p.id<=10&&!state.showOpponent)&&Math.hypot(x-p.x,y-p.y)<PLAYER_RADIUS)||null}
+function startDrag(e){if(state.isPlaying)return;const c=coords(e);if(state.isDrawingMode){state.drawingStart=c;return}const item=clicked(c.x,c.y);if(item){saveHistory();state.draggedItem=item;if(item.id!==BALL_ID)state.playerTrails[item.id]=[]}}
+function moveDrag(e){if(state.isPlaying)return;if(state.isDrawingMode&&state.drawingStart){e.preventDefault();const c=coords(e);updateCanvas();ctx.strokeStyle='#f59e0b';ctx.lineWidth=3;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(state.drawingStart.x,state.drawingStart.y);ctx.lineTo(c.x,c.y);ctx.stroke();ctx.setLineDash([]);arrowHead(c.x,c.y,state.drawingStart.x,state.drawingStart.y,'#f59e0b');return}if(!state.draggedItem)return;e.preventDefault();const c=coords(e),r=state.draggedItem.id===BALL_ID?BALL_RADIUS:PLAYER_RADIUS;state.draggedItem.x=Math.max(r,Math.min(W-r,c.x));state.draggedItem.y=Math.max(r,Math.min(COURT_H-r,c.y));const id=state.draggedItem.id;if(id!==BALL_ID){const t=state.playerTrails[id]??=[];const l=t.at(-1);if(!l||Math.hypot(state.draggedItem.x-l.x,state.draggedItem.y-l.y)>5)t.push({x:state.draggedItem.x,y:state.draggedItem.y});if(t.length>TRAIL_LENGTH)t.shift()}updateCanvas()}
+
+function endDrag(e){
+  if(state.isDrawingMode&&state.drawingStart){
+    const c=coords(e);
+    if(Math.hypot(c.x-state.drawingStart.x,c.y-state.drawingStart.y)>10){
+      const currentFrame = (state.isRecording || state.isPlaying || state.recording.length > 0) ? state.playHead : 0;
+      state.customArrows.push({fromX:state.drawingStart.x, fromY:state.drawingStart.y, toX:c.x, toY:c.y, frameIndex: currentFrame});
+    }
+    state.drawingStart=null;
+    updateCanvas();
+    return;
+  }
+  state.draggedItem=null;
+}
+
+function startRecording(){
+  if(state.isPlaying)return;
+  state.isRecording=true;
+  state.recording=[];
+  state.playHead=0;
+  state.playerTrails={};
+  $('recordBtn').textContent='A gravar...';
+  $('recordBtn').classList.add('recording-active');
+  for(const id of ['playbackBtn','saveBtn','exportMp4Btn','undoBtn','timelineSlider'])$(id).disabled=true;
+  
+  state.interval=setInterval(()=>{
+    state.recording.push({positions:state.players.map(p=>({id:p.id,x:p.x,y:p.y}))});
+    state.playHead = state.recording.length - 1; // Atualiza o playHead em tempo real durante a gravação
+  },FRAME_INTERVAL);
+  
+  setStatus('A gravar movimento...');
+}
+
+function stopRecording(){clearInterval(state.interval);state.isRecording=false;$('recordBtn').textContent='Gravar';$('recordBtn').classList.remove('recording-active');const has=state.recording.length>0;$('playbackBtn').disabled=!has;$('saveBtn').disabled=!has;$('exportMp4Btn').disabled=!has;updateCanvas();setStatus(`Gravação terminada: ${state.recording.length} frames.`)}
+function applyFrame(index){const frame=state.recording[index];if(!frame)return;for(const p of frame.positions){const item=state.players.find(x=>x.id===p.id);if(item){item.x=p.x;item.y=p.y}}state.playHead=index;updateTimelineUI()}
+function startPlayback(){if(state.isRecording||!state.recording.length||state.isPlaying)return;state.isPlaying=true;if(state.playHead>=state.recording.length-1)state.playHead=0;$('playbackBtn').textContent='Parar';$('recordBtn').disabled=$('saveBtn').disabled=$('exportMp4Btn').disabled=true;state.interval=setInterval(()=>{if(state.playHead>=state.recording.length-1)return stopPlayback();applyFrame(++state.playHead);updateCanvas()},FRAME_INTERVAL)}
+
+function stopPlayback(){
+  clearInterval(state.interval);
+  state.isPlaying=false;
+  $('recordBtn').disabled=false;
+  $('saveBtn').disabled=$('exportMp4Btn').disabled=!state.recording.length;
+  $('playbackBtn').textContent='Play';
+  
+  if(state.recording.length > 0){
+     const lastFrame = state.recording[state.recording.length - 1];
+     lastFrame.positions.forEach(pos => {
+        let item = state.players.find(p => p.id === pos.id);
+        if (item) { item.x = pos.x; item.y = pos.y; }
+     });
+  }
+  updateCanvas(); 
+  setStatus('Reprodução terminada.');
+}
+
+async function exportVideo(){
+ if(!state.recording.length)return setStatus('Grave ou carregue uma jogada antes de exportar.',true);
+ if(typeof MediaRecorder==='undefined'||typeof canvas.captureStream!=='function')return modal('Navegador incompatível','A exportação requer uma versão recente do Chrome, Edge ou Firefox.');
+ const formats=[['video/mp4;codecs=avc1.42E01E','mp4'],['video/mp4','mp4'],['video/webm;codecs=vp9','webm'],['video/webm;codecs=vp8','webm'],['video/webm','webm']];
+ const format=formats.find(([mime])=>MediaRecorder.isTypeSupported(mime));if(!format)return modal('Formato indisponível','Este navegador não suporta MP4 nem WebM através do MediaRecorder.');
+ const [mime,ext]=format,original=state.players.map(p=>({id:p.id,x:p.x,y:p.y}));let stream,recorder,timer;
+ try{
+  for(const id of ['exportMp4Btn','recordBtn','playbackBtn','saveBtn'])$(id).disabled=true;setStatus(`A exportar ${ext.toUpperCase()}...`);
+  stream=canvas.captureStream(Math.max(1,Math.round(1000/FRAME_INTERVAL)));recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:5000000});const chunks=[];
+  recorder.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};const stopped=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=e=>reject(e.error||new Error('Erro de gravação'))});
+  applyFrame(0);state.isPlaying=true;updateCanvas();recorder.start(250);
+  await new Promise((resolve,reject)=>{let i=0;timer=setInterval(()=>{try{if(i>=state.recording.length){clearInterval(timer);timer=null;setTimeout(resolve,400);return}applyFrame(i++);updateCanvas()}catch(err){clearInterval(timer);reject(err)}},FRAME_INTERVAL)});
+  recorder.stop();await stopped;if(!chunks.length)throw new Error('O navegador não produziu dados de vídeo.');
+  const blob=new Blob(chunks,{type:recorder.mimeType||mime});if(!blob.size)throw new Error('O ficheiro de vídeo ficou vazio.');const url=URL.createObjectURL(blob);
+  const safe=($('playNameInput').value.trim()||'jogada_futsal_ap').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'').toLowerCase();const filename=`${safe||'jogada_futsal_ap'}.${ext}`;
+  const box=document.createElement('div');box.className='flex flex-col items-center gap-4';const p=document.createElement('p');p.textContent=`Vídeo gerado em ${ext.toUpperCase()}.`;const video=document.createElement('video');video.src=url;video.controls=true;video.playsInline=true;video.className='w-full max-h-64 rounded bg-black';const a=document.createElement('a');a.href=url;a.download=filename;a.textContent=`📥 Descarregar ${filename}`;a.className='block w-full rounded-xl bg-amber-600 px-6 py-3 text-center font-bold text-white';box.append(p,video,a);await modal('Vídeo pronto',box);setTimeout(()=>URL.revokeObjectURL(url),10000);setStatus(`Vídeo "${filename}" gerado com sucesso.`)
+ }catch(err){console.error(err);await modal('Erro na exportação',err.message||'Não foi possível gerar o vídeo.');setStatus('Erro na exportação do vídeo.',true)}finally{if(timer)clearInterval(timer);if(recorder&&recorder.state!=='inactive')try{recorder.stop()}catch{}stream?.getTracks().forEach(t=>t.stop());state.isPlaying=false;state.playHead=0;for(const p of original){const item=state.players.find(x=>x.id===p.id);if(item)Object.assign(item,p)}$('recordBtn').disabled=false;$('playbackBtn').disabled=$('saveBtn').disabled=$('exportMp4Btn').disabled=!state.recording.length;updateCanvas()}
+}
+function setEdit(id){state.activePlayId=id;$('currentPlayId').textContent=id;$('editingBadge').classList.remove('hidden');$('cancelEditBtn').classList.remove('hidden');$('saveBtn').textContent='🔄 Atualizar jogada';$('dbPlaySelect').value=id}
+function clearEdit(){state.activePlayId=null;$('editingBadge').classList.add('hidden');$('cancelEditBtn').classList.add('hidden');$('saveBtn').textContent='💾 Guardar jogada';$('dbPlaySelect').value=''}
+
+function syncCategoriesFromPlays(plays) {
+    plays.forEach(p => {
+        if (p.tipo && p.subtipo) {
+            if (!SUBTIPOS_MAP[p.tipo]) SUBTIPOS_MAP[p.tipo] = [];
+            if (!SUBTIPOS_MAP[p.tipo].includes(p.subtipo)) SUBTIPOS_MAP[p.tipo].push(p.subtipo);
+        } else if (p.tipo && !SUBTIPOS_MAP[p.tipo]) {
+            SUBTIPOS_MAP[p.tipo] = [];
+        }
+    });
+}
+
+function populatePlayTypesSelect(plays) {
+    if (plays) syncCategoriesFromPlays(plays);
+    const currentSelected = $('playTypeSelect').value;
+    const allTypes = Object.keys(SUBTIPOS_MAP);
+    const select = $('playTypeSelect');
+    select.innerHTML = '';
+    
+    allTypes.forEach(tipo => {
+        const o = document.createElement('option');
+        o.value = o.textContent = tipo;
+        select.appendChild(o);
+    });
+
+    if (currentSelected && allTypes.includes(currentSelected)) select.value = currentSelected;
+    else if (allTypes.length > 0) select.value = allTypes[0];
+    updateSubtypesSelect();
+}
+
+function updateSubtypesSelect(selectedSubtype = null) {
+    const selectedType = $('playTypeSelect').value;
+    const subtipos = SUBTIPOS_MAP[selectedType] || [];
+    const select = $('playSubtypeSelect');
+    select.innerHTML = '';
+    
+    subtipos.forEach(sub => {
+        const o = document.createElement('option');
+        o.value = o.textContent = sub;
+        select.appendChild(o);
+    });
+
+    if (selectedSubtype && subtipos.includes(selectedSubtype)) {
+        select.value = selectedSubtype;
+    }
+}
+
+function handleAddNewCategory() {
+    const rawType = $('newTypeInput').value.trim();
+    const rawSubtype = $('newSubtypeInput').value.trim();
+    if (!rawSubtype) return setStatus("Introduza pelo menos um SubTipo!", true);
+    const targetType = rawType || $('playTypeSelect').value || 'Ataque';
+    if (!SUBTIPOS_MAP[targetType]) SUBTIPOS_MAP[targetType] = [];
+    if (!SUBTIPOS_MAP[targetType].includes(rawSubtype)) SUBTIPOS_MAP[targetType].push(rawSubtype);
+    
+    populatePlayTypesSelect(state.plays);
+    $('playTypeSelect').value = targetType;
+    updateSubtypesSelect(rawSubtype);
+    $('newTypeInput').value = '';
+    $('newSubtypeInput').value = '';
+    setStatus(`Categoria "${targetType} > ${rawSubtype}" adicionada.`);
+}
+
+function populateSelect(plays){
+  $('dbPlaySelect').innerHTML='<option value="">-- Selecionar jogada --</option>';
+  for(const item of plays){
+    const o=document.createElement('option');
+    o.value=item.id;
+    const subStr = item.subtipo ? ` > ${item.subtipo}` : '';
+    o.textContent=`[${item.tipo}${subStr}] ${item.jogada?.name||`Jogada #${item.id}`}`;
+    $('dbPlaySelect').appendChild(o);
+  }
+  if(state.activePlayId)$('dbPlaySelect').value=state.activePlayId;
+}
+
+async function loadPlays(){
+  const{data,error}=await db.from('jogadas_joãovalente').select('*').order('created_at',{ascending:false});
+  if(error){console.error(error);setStatus(`Erro Supabase: ${error.message}`,true);state.plays=[]}
+  else state.plays=data||[];
+  
+  populatePlayTypesSelect(state.plays);
+  populateSelect(state.plays);
+  renderFilteredPlays();
+}
+
+async function savePlay(){
+  if(!state.recording.length)return setStatus('Grave um movimento primeiro.',true);
+  const payload={
+    tipo:$('playTypeSelect').value,
+    subtipo:$('playSubtypeSelect').value||null,
+    responsavel:$('playResponsavelInput').value.trim()||'Treinador',
+    jogada:{
+      name:$('playNameInput').value.trim()||'Jogada sem nome',
+      labels:state.playerLabels,
+      recording:state.recording,
+      customArrows:state.customArrows,
+      observacoes:$('playObservacoesInput').value.trim()
+    }
+  };
+  const query=state.activePlayId?db.from('jogadas_joãovalente').update(payload).eq('id',state.activePlayId):db.from('jogadas_joãovalente').insert([payload]);
+  const{error}=await query.select();
+  if(error)return setStatus(`Erro: ${error.message}`,true);
+  setStatus(state.activePlayId?'Jogada atualizada.':'Jogada criada.');
+  clearEdit();
+  await loadPlays();
+}
+
+function loadPlay(item){
+  if(state.isPlaying||state.isRecording)return;
+  const p=item.jogada||{};
+  state.recording=p.recording||[];
+  state.customArrows=p.customArrows||[];
+  state.history=[];
+  state.playerTrails={};
+  if(p.labels){
+    state.playerLabels=structuredClone(p.labels);
+    renderLabelInputs();
+  }
+  $('playNameInput').value=p.name||'Jogada';
+  
+  if(item.tipo){
+    if(!SUBTIPOS_MAP[item.tipo]) SUBTIPOS_MAP[item.tipo] = [];
+    if(item.subtipo && !SUBTIPOS_MAP[item.tipo].includes(item.subtipo)) SUBTIPOS_MAP[item.tipo].push(item.subtipo);
+    populatePlayTypesSelect(state.plays);
+    $('playTypeSelect').value=item.tipo;
+    updateSubtypesSelect(item.subtipo);
+  }
+  
+  $('playResponsavelInput').value=item.responsavel||'Treinador';
+  $('playObservacoesInput').value=p.observacoes||'';
+  $('externalNotesDisplay').textContent=p.observacoes||'Sem observações inseridas para esta jogada.';
+  state.playHead=0;
+  if(state.recording.length)applyFrame(0);
+  setEdit(item.id);
+  $('playbackBtn').disabled=$('saveBtn').disabled=$('exportMp4Btn').disabled=!state.recording.length;
+  updateCanvas();
+  setStatus(`Jogada #${item.id} carregada.`);
+}
+
+async function deletePlay(id){
+  if(!await modal('Confirmação',`Apagar a jogada #${id}?`,true))return;
+  const{error}=await db.from('jogadas').delete().eq('id',id);
+  if(error)return setStatus(`Erro: ${error.message}`,true);
+  if(state.activePlayId===id)clearEdit();
+  await loadPlays();
+}
+
+function renderFilteredPlays(){
+  const term=($('searchPlaysInput').value||'').toLowerCase();
+  const filtered=state.plays.filter(item=>{
+    const name=(item.jogada?.name||'').toLowerCase();
+    const tipo=(item.tipo||'').toLowerCase();
+    const subtipo=(item.subtipo||'').toLowerCase();
+    const resp=(item.responsavel||'').toLowerCase();
+    return name.includes(term)||tipo.includes(term)||subtipo.includes(term)||resp.includes(term);
+  });
+  renderPlays(filtered);
+}
+
+function renderPlays(plays){
+  const list=$('savedPlaysList');
+  list.innerHTML='';
+  if(!plays.length){list.innerHTML='<p class="text-sm text-gray-500">Nenhuma jogada encontrada.</p>';return}
+  for(const item of plays){
+    const div=document.createElement('div');
+    div.className='rounded-lg border bg-white p-2 shadow-sm flex flex-col gap-1';
+    
+    const headerDiv = document.createElement('div');
+    headerDiv.className = "flex justify-between items-center gap-1";
+    
+    const name=document.createElement('span');
+    name.className='font-semibold text-gray-800 text-sm truncate';
+    name.textContent=item.jogada?.name||`Jogada #${item.id}`;
+    
+    const badgeContainer = document.createElement('div');
+    badgeContainer.className = "flex gap-1 flex-shrink-0 flex-wrap";
+    
+    const typeBadge = document.createElement('span');
+    typeBadge.textContent = item.tipo;
+    typeBadge.className = "text-xs px-2 py-0.5 bg-teal-100 text-teal-800 rounded-full font-medium";
+    badgeContainer.appendChild(typeBadge);
+
+    if (item.subtipo) {
+        const subtypeBadge = document.createElement('span');
+        subtypeBadge.textContent = item.subtipo;
+        subtypeBadge.className = "text-xs px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full font-medium";
+        badgeContainer.appendChild(subtypeBadge);
+    }
+    
+    headerDiv.append(name, badgeContainer);
+
+    const meta=document.createElement('div');
+    meta.className='text-xs text-gray-500 flex justify-between items-center';
+    meta.textContent=`Resp: ${item.responsavel||'Sem responsável'} · #${item.id}`;
+    
+    const actions=document.createElement('div');
+    actions.className='mt-1 flex justify-end gap-2';
+    const load=document.createElement('button');
+    load.type='button';
+    load.className='rounded bg-blue-500 px-2 py-1 text-xs font-bold text-white';
+    load.textContent='Carregar';
+    load.onclick=()=>loadPlay(item);
+    
+    const del=document.createElement('button');
+    del.type='button';
+    del.className='rounded bg-red-500 px-2 py-1 text-xs font-bold text-white';
+    del.textContent='Apagar';
+    del.onclick=()=>deletePlay(item.id);
+
+    actions.append(load,del);
+    div.append(headerDiv,meta,actions);
+    list.appendChild(div);
+  }
+}
+
+function init(){
+  initialize();
+  updateLayout();
+  populatePlayTypesSelect([]);
+  loadPlays();
+  
+  $('menuToggleLeftBtn').onclick=()=>toggleMenu('left');
+  $('menuToggleRightBtn').onclick=()=>toggleMenu('right');
+  $('resetBtn').onclick=resetPlay;
+  $('undoBtn').onclick=undo;
+  $('undoArrowBtn').onclick=undoArrow;
+  $('toggleOpponentBtn').onclick=()=>{state.showOpponent=!state.showOpponent;$('toggleOpponentBtn').textContent=state.showOpponent?'Ocultar equipa oponente':'Mostrar equipa oponente';updateCanvas()};
+  $('togglePathArrowsBtn').onclick=()=>{state.showPathArrows=!state.showPathArrows;$('togglePathArrowsBtn').textContent=state.showPathArrows?'✖ Ocultar trajetos':'▶ Mostrar trajetos';updateCanvas()};
+  $('toggleDrawModeBtn').onclick=()=>{state.isDrawingMode=!state.isDrawingMode;$('toggleDrawModeBtn').textContent=`✏ Modo seta: ${state.isDrawingMode?'ON':'OFF'}`;canvas.className=canvas.className.replace(/cursor-\w+/g,'')+' '+(state.isDrawingMode?'cursor-crosshair':'cursor-grab')};
+  $('clearArrowsBtn').onclick=()=>{state.customArrows=[];updateCanvas()};
+  $('recordBtn').onclick=()=>state.isRecording?stopRecording():startRecording();
+  $('playbackBtn').onclick=()=>state.isPlaying?stopPlayback():startPlayback();
+  $('exportMp4Btn').onclick=exportVideo;
+  $('saveBtn').onclick=savePlay;
+  $('refreshPlaysBtn').onclick=loadPlays;
+  $('cancelEditBtn').onclick=clearEdit;
+  $('dbPlaySelect').onchange=e=>{const item=state.plays.find(p=>String(p.id)===e.target.value);if(item)loadPlay(item);else clearEdit()};
+  $('playTypeSelect').onchange=()=>updateSubtypesSelect();
+  $('addNewCategoryBtn').onclick=handleAddNewCategory;
+  $('playObservacoesInput').oninput=e=>{$('externalNotesDisplay').textContent=e.target.value.trim()||'Sem observações inseridas para esta jogada.';updateCanvas();};
+  $('searchPlaysInput').oninput=renderFilteredPlays;
+  $('timelineSlider').oninput=e=>{if(state.isRecording||state.isPlaying)return;applyFrame(Number(e.target.value));updateCanvas()};
+  
+  canvas.addEventListener('mousedown',startDrag);
+  canvas.addEventListener('mousemove',moveDrag);
+  document.addEventListener('mouseup',endDrag);
+  canvas.addEventListener('touchstart',startDrag,{passive:false});
+  canvas.addEventListener('touchmove',moveDrag,{passive:false});
+  document.addEventListener('touchend',endDrag);
+  $('appStatus').textContent='FutSal - AP pronto.';
+}
+window.addEventListener('load',init);
+</script>
+</body>
+</html>
